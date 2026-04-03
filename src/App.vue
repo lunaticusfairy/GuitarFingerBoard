@@ -207,36 +207,6 @@ const accuracy = computed(() => {
 
   return Math.round((currentStats.value.correctAnswers / currentStats.value.totalAnswers) * 100)
 })
-const modeTitle = computed(() =>
-  activeMode.value === 'natural' ? '기타 지판 자연음 퀴즈' : 'A minor pentatonic 루트 찾기',
-)
-const modeDescription = computed(() =>
-  activeMode.value === 'natural'
-    ? '표준 튜닝 E A D G B E 기준으로 1프렛부터 13프렛까지 연습합니다. 문제는 자연음 A B C D E F G만 나오고, 정답을 맞히면 자동으로 다음 문제로 넘어갑니다.'
-    : 'A minor pentatonic box 1부터 5까지 중 하나를 고르고, 박스 안의 음들 중 빨간 점이 루트 A인지 맞히는 방식으로 익힙니다.',
-)
-const questionTitle = computed(() => {
-  if (!currentQuestion.value) {
-    return '문제를 불러오는 중입니다.'
-  }
-
-  if (activeMode.value === 'natural') {
-    return `${currentQuestion.value.stringNumber}번 줄 ${currentQuestion.value.fret}프렛의 계이름은?`
-  }
-
-  return `A minor pentatonic box ${selectedBox.value}에서 이 빨간 점은 루트(A)인가?`
-})
-const questionNote = computed(() =>
-  activeMode.value === 'natural'
-    ? '보기 4개 중 하나를 선택하세요. 정답이면 잠깐 표시된 뒤 자동으로 다음 문제로 넘어갑니다.'
-    : '회색 점들은 선택한 박스의 음들입니다. 빨간 점이 루트 A인지 골라 보세요.',
-)
-const idleFeedback = computed(() =>
-  activeMode.value === 'natural'
-    ? '빨간 점 위치를 보고 계이름을 맞혀 보세요.'
-    : '박스 안에서 빨간 점이 루트인지 아닌지 골라 보세요.',
-)
-
 function clearAutoNextTimer() {
   if (autoNextTimer) {
     clearTimeout(autoNextTimer)
@@ -420,51 +390,42 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="app-shell">
-    <section class="hero-panel">
-      <div class="hero-copy">
-        <div class="mode-toggle">
-          <button
-            type="button"
-            class="mode-button"
-            :class="{ active: activeMode === 'natural' }"
-            @click="switchMode('natural')"
-          >
-            자연음 퀴즈
-          </button>
-          <button
-            type="button"
-            class="mode-button"
-            :class="{ active: activeMode === 'pentatonic' }"
-            @click="switchMode('pentatonic')"
-          >
-            A minor pentatonic
+    <section class="card fretboard-card">
+      <div class="board-topbar">
+        <div class="board-topbar-left">
+          <div class="mode-toggle">
+            <button
+              type="button"
+              class="mode-button"
+              :class="{ active: activeMode === 'natural' }"
+              @click="switchMode('natural')"
+            >
+              자연음
+            </button>
+            <button
+              type="button"
+              class="mode-button"
+              :class="{ active: activeMode === 'pentatonic' }"
+              @click="switchMode('pentatonic')"
+            >
+              A minor pentatonic
+            </button>
+          </div>
+
+          <span class="board-title">사랑하는 아들 우주를 위한 기타지판퀴즈</span>
+        </div>
+
+        <div class="stats-inline">
+          <span>정답 <strong>{{ currentStats.correctAnswers }}</strong></span>
+          <span>총문제 <strong>{{ currentStats.totalAnswers }}</strong></span>
+          <span>정답률 <strong>{{ accuracy }}%</strong></span>
+          <span>최고연속 <strong>{{ currentStats.bestStreak }}</strong></span>
+          <button type="button" class="stat-reset-button" @click="resetProgress">
+            초기화
           </button>
         </div>
-        <h1>{{ modeTitle }}</h1>
-        <p class="lead">{{ modeDescription }}</p>
       </div>
 
-      <div class="stats-grid">
-        <article class="stat-card">
-          <span class="stat-label">정답</span>
-          <strong class="stat-value">{{ currentStats.correctAnswers }}</strong>
-        </article>
-        <article class="stat-card">
-          <span class="stat-label">총 문제</span>
-          <strong class="stat-value">{{ currentStats.totalAnswers }}</strong>
-        </article>
-        <article class="stat-card">
-          <span class="stat-label">정답률</span>
-          <strong class="stat-value">{{ accuracy }}%</strong>
-        </article>
-        <article class="stat-card">
-          <span class="stat-label">최고 연속</span>
-          <strong class="stat-value">{{ currentStats.bestStreak }}</strong>
-        </article>
-      </div>
-    </section>
-
-    <section class="card fretboard-card">
       <div v-if="activeMode === 'pentatonic'" class="box-toolbar">
         <span class="box-toolbar-label">Box</span>
         <div class="box-toolbar-buttons">
@@ -563,18 +524,6 @@ onBeforeUnmount(() => {
     </section>
 
     <section class="card quiz-card">
-      <div class="section-head compact">
-        <div>
-          <p class="section-label">Question</p>
-          <h2>{{ questionTitle }}</h2>
-        </div>
-        <span class="best-streak">
-          {{ activeMode === 'pentatonic' ? `Box ${selectedBox} · ` : '' }}연속 {{ currentStats.currentStreak }}
-        </span>
-      </div>
-
-      <p class="question-note">{{ questionNote }}</p>
-
       <div
         v-if="currentQuestion"
         class="choices-grid"
@@ -620,27 +569,10 @@ onBeforeUnmount(() => {
       </div>
 
       <div
-        class="feedback-box"
-        :class="{
-          success: isAnswered && lastAnswerCorrect,
-          error: isAnswered && !lastAnswerCorrect,
-        }"
+        v-if="isAnswered && !lastAnswerCorrect"
+        class="feedback-box error"
       >
-        <template v-if="isAnswered">
-          {{ feedbackMessage }}
-        </template>
-        <template v-else>
-          {{ idleFeedback }}
-        </template>
-      </div>
-
-      <div class="action-row">
-        <button type="button" class="primary-button" @click="nextQuestion">
-          다른 문제 보기
-        </button>
-        <button type="button" class="secondary-button" @click="resetProgress">
-          현재 모드 기록 초기화
-        </button>
+        {{ feedbackMessage }}
       </div>
     </section>
   </main>
@@ -650,10 +582,9 @@ onBeforeUnmount(() => {
 .app-shell {
   width: min(980px, calc(100% - 20px));
   margin: 0 auto;
-  padding: 18px 0 28px;
+  padding: 12px 0 20px;
 }
 
-.hero-panel,
 .card {
   border-radius: 28px;
   border: 1px solid rgba(76, 52, 31, 0.12);
@@ -665,46 +596,55 @@ onBeforeUnmount(() => {
     inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
-.hero-panel {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
-  gap: 14px;
-  padding: 12px 14px;
-  margin-bottom: 8px;
-}
-
 .card {
-  padding: 20px;
-  margin-top: 14px;
+  padding: 12px;
+  margin-top: 10px;
 }
 
-.section-label {
-  margin: 0 0 6px;
-  font-size: 0.66rem;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: #8a6540;
+.board-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-bottom: 6px;
+}
+
+.board-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.board-title {
+  color: #2f2015;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .mode-toggle {
   display: inline-flex;
   gap: 6px;
-  margin-bottom: 8px;
-  padding: 4px;
+  margin-bottom: 0;
+  padding: 3px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(129, 88, 47, 0.12);
 }
 
 .mode-button {
-  min-height: 28px;
-  padding: 0 12px;
+  min-height: 24px;
+  padding: 0 10px;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: #6a5038;
   font: inherit;
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   cursor: pointer;
 }
 
@@ -713,52 +653,37 @@ onBeforeUnmount(() => {
   background: linear-gradient(135deg, #ba6133, #de8b34);
 }
 
-.hero-copy h1,
-.section-head h2 {
-  margin: 0;
-  color: #2b1d13;
+.stats-inline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-left: auto;
+  color: #6a5038;
+  font-size: 0.72rem;
+  line-height: 1.2;
 }
 
-.hero-copy h1 {
-  font-size: clamp(1.2rem, 2vw, 1.9rem);
-  line-height: 1.02;
-  letter-spacing: -0.06em;
+.stats-inline span {
+  white-space: nowrap;
 }
 
-.lead,
-.question-note {
-  color: #5d4737;
-}
-
-.hero-copy .lead {
-  margin: 6px 0 0;
-  font-size: 0.8rem;
-  line-height: 1.35;
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.stat-card {
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(129, 88, 47, 0.12);
-}
-
-.stat-label {
-  display: block;
-  margin-bottom: 2px;
-  color: #8c6b4b;
-  font-size: 0.7rem;
-}
-
-.stat-value {
-  font-size: clamp(0.98rem, 1.5vw, 1.3rem);
+.stats-inline strong {
   color: #1f140d;
+  font-size: 0.82rem;
+}
+
+.stat-reset-button {
+  min-height: 18px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(121, 88, 56, 0.12);
+  color: #6a5038;
+  font: inherit;
+  font-size: 0.62rem;
+  cursor: pointer;
 }
 
 .box-toolbar {
@@ -959,15 +884,15 @@ onBeforeUnmount(() => {
 
 .fret-numbers {
   position: relative;
-  height: 18px;
-  margin-top: 8px;
+  height: 14px;
+  margin-top: 2px;
 }
 
 .fret-number {
   position: absolute;
   top: 0;
   transform: translateX(-50%);
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   color: #4e3b2d;
   white-space: nowrap;
 }
@@ -985,25 +910,14 @@ onBeforeUnmount(() => {
 }
 
 .quiz-card {
-  padding: 14px 16px;
-}
-
-.quiz-card .section-head h2 {
-  font-size: 1.12rem;
-  line-height: 1.3;
-}
-
-.quiz-card .question-note {
-  margin: 6px 0 0;
-  font-size: 0.9rem;
-  line-height: 1.45;
+  padding: 10px 12px;
 }
 
 .choices-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 10px;
+  gap: 6px;
+  margin-top: 0;
 }
 
 .choices-grid.is-binary {
@@ -1011,13 +925,14 @@ onBeforeUnmount(() => {
 }
 
 .choice-button {
-  min-height: 46px;
+  min-height: 40px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 10px;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 6px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #fff8ec;
   color: #25170e;
   font: inherit;
@@ -1063,25 +978,25 @@ onBeforeUnmount(() => {
 }
 
 .choice-index {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border-radius: 999px;
   display: grid;
   place-items: center;
   background: rgba(129, 88, 47, 0.12);
   font-weight: 700;
-  font-size: 0.72rem;
+  font-size: 0.62rem;
 }
 
 .choice-note {
-  font-size: clamp(0.92rem, 1.6vw, 1.12rem);
+  font-size: clamp(0.76rem, 1.2vw, 0.96rem);
   font-weight: 800;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
 }
 
 .feedback-box {
-  min-height: 38px;
-  margin-top: 8px;
+  min-height: 0;
+  margin-top: 6px;
   padding: 8px 10px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.76);
@@ -1091,91 +1006,44 @@ onBeforeUnmount(() => {
   font-size: 0.82rem;
 }
 
-.feedback-box.success {
-  background: #eff9f0;
-  color: #295335;
-  border-color: rgba(76, 157, 92, 0.18);
-}
-
 .feedback-box.error {
   background: #fff1ee;
   color: #7f3427;
   border-color: rgba(193, 93, 71, 0.18);
 }
 
-.action-row {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.primary-button,
-.secondary-button {
-  min-height: 34px;
-  padding: 0 10px;
-  border-radius: 10px;
-  border: 0;
-  font: inherit;
-  cursor: pointer;
-  font-size: 0.82rem;
-}
-
-.primary-button {
-  flex: 1;
-  color: #fff8f1;
-  background: linear-gradient(135deg, #bb5a2f, #e38b2d);
-  box-shadow: 0 14px 28px rgba(187, 90, 47, 0.18);
-}
-
-.secondary-button {
-  color: #5a4331;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(121, 88, 56, 0.14);
-}
-
 @media (max-width: 980px) {
   .app-shell {
     width: min(100% - 16px, 100%);
-    padding: 16px 0 22px;
-  }
-
-  .hero-panel {
-    grid-template-columns: 1fr;
-    gap: 10px;
-    padding: 10px 12px;
+    padding: 10px 0 18px;
   }
 
   .card {
-    padding: 18px;
+    padding: 10px;
   }
 
   .section-head {
     flex-direction: column;
   }
-
-  .choices-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .choices-grid.is-binary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 640px) {
-  .stats-grid,
-  .choices-grid,
-  .choices-grid.is-binary {
-    grid-template-columns: 1fr;
-  }
-
-  .action-row {
-    flex-direction: column;
-  }
-
   .mode-toggle {
     flex-wrap: wrap;
     border-radius: 14px;
+  }
+
+  .board-topbar {
+    align-items: flex-start;
+  }
+
+  .board-topbar-left {
+    gap: 6px;
+  }
+
+  .board-title {
+    font-size: 0.64rem;
+    white-space: normal;
   }
 
   .fretboard-figure {
@@ -1194,6 +1062,29 @@ onBeforeUnmount(() => {
     font-size: 0.74rem;
   }
 
+  .quiz-card {
+    padding: 8px 10px;
+  }
+
+  .choices-grid {
+    gap: 4px;
+  }
+
+  .choice-button {
+    min-height: 34px;
+    padding: 0 4px;
+  }
+
+  .choice-index {
+    width: 16px;
+    height: 16px;
+    font-size: 0.56rem;
+  }
+
+  .choice-note {
+    font-size: 0.72rem;
+  }
+
   .box-note-marker {
     width: 7px;
     height: 7px;
@@ -1202,6 +1093,19 @@ onBeforeUnmount(() => {
   .question-marker {
     width: 13px;
     height: 13px;
+  }
+
+  .stats-inline {
+    gap: 6px;
+    font-size: 0.64rem;
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .stat-reset-button {
+    padding: 0 4px;
+    font-size: 0.56rem;
   }
 }
 </style>
