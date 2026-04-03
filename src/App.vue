@@ -14,7 +14,10 @@ const STRING_TUNINGS = [
 ]
 const POSITION_MARKER_FRETS = [3, 5, 7, 9, 12]
 const VISIBLE_FRET_COUNT = 13
-const AUTO_NEXT_DELAY = 900
+const OPEN_AREA_RATIO = 0.08
+const CORRECT_NEXT_DELAY = 900
+const WRONG_NEXT_DELAY = 1400
+const QUESTION_TIME_LIMIT = 5
 const FRET_LIST = Array.from({ length: VISIBLE_FRET_COUNT }, (_, index) => index + 1)
 const PENTATONIC_BOXES = [
   {
@@ -84,12 +87,17 @@ const selectedAnswer = ref('')
 const isAnswered = ref(false)
 const lastAnswerCorrect = ref(false)
 const feedbackMessage = ref('')
+const isRunning = ref(false)
+const timeLeft = ref(QUESTION_TIME_LIMIT)
+const showResultModal = ref(false)
+const lastSessionResult = ref(null)
 const statsByMode = reactive({
   natural: createStats(),
   pentatonic: createStats(),
 })
 
 let autoNextTimer = null
+let countdownTimer = null
 
 function createStats() {
   return {
@@ -120,6 +128,10 @@ function getStringPercent(stringNumber) {
   return ((stringNumber - 1) / (STRING_TUNINGS.length - 1)) * 100
 }
 
+function getPositionLabel(fret) {
+  return fret === 0 ? '개방현' : `${fret}프렛`
+}
+
 function getFretBoundaryRatio(fret) {
   if (fret <= 0) {
     return 0
@@ -135,16 +147,24 @@ function getFretCenterRatio(fret) {
   return (start + end) / 2
 }
 
+function getBoardRatio(scaleRatio) {
+  return OPEN_AREA_RATIO + scaleRatio * (1 - OPEN_AREA_RATIO)
+}
+
 function getFretPercent(fret) {
-  return getFretCenterRatio(fret) * 100
+  if (fret === 0) {
+    return (OPEN_AREA_RATIO * 0.5) * 100
+  }
+
+  return getBoardRatio(getFretCenterRatio(fret)) * 100
 }
 
 function getFretBoundaryPercent(fret) {
-  return getFretBoundaryRatio(fret) * 100
+  return getBoardRatio(getFretBoundaryRatio(fret)) * 100
 }
 
 const fretboard = STRING_TUNINGS.map(({ stringNumber, openNote }) => {
-  const frets = FRET_LIST.map((fret) => {
+  const frets = [0, ...FRET_LIST].map((fret) => {
     const note = getNoteAtFret(openNote, fret)
 
     return {
@@ -207,11 +227,97 @@ const accuracy = computed(() => {
 
   return Math.round((currentStats.value.correctAnswers / currentStats.value.totalAnswers) * 100)
 })
+
+const resultHeadline = computed(() => {
+  if (!lastSessionResult.value) {
+    return ''
+  }
+
+  if (lastSessionResult.value.totalAnswers === 0) {
+    return '아직 몸 풀기 전이에요'
+  }
+
+  if (lastSessionResult.value.accuracy >= 90) {
+    return '와, 정말 대단해요'
+  }
+
+  if (lastSessionResult.value.accuracy >= 70) {
+    return '아주 잘하고 있어요'
+  }
+
+  if (lastSessionResult.value.accuracy >= 40) {
+    return '조금만 더 하면 잡혀요'
+  }
+
+  return '괜찮아요, 다시 해보면 돼요'
+})
+
+const resultModeLabel = computed(() => {
+  if (!lastSessionResult.value) {
+    return ''
+  }
+
+  return lastSessionResult.value.mode === 'natural'
+    ? '자연음 퀴즈 결과'
+    : `A minor pentatonic box ${lastSessionResult.value.boxNumber} 결과`
+})
+
+const resultCopy = computed(() => {
+  if (!lastSessionResult.value) {
+    return ''
+  }
+
+  if (lastSessionResult.value.totalAnswers === 0) {
+    return '시작 버튼만 누르면 우주 하늘 기타 탐험이 바로 시작돼요.'
+  }
+
+  if (lastSessionResult.value.accuracy >= 90) {
+    return '지판이 손에 꽤 익었어요. 지금 흐름이면 우주 하늘 앞에서 멋지게 뽐낼 수 있겠어요.'
+  }
+
+  if (lastSessionResult.value.accuracy >= 70) {
+    return '감이 아주 좋아요. 몇 번만 더 하면 위치가 더 또렷하게 기억날 거예요.'
+  }
+
+  if (lastSessionResult.value.accuracy >= 40) {
+    return '충분히 잘 가고 있어요. 조금 헷갈린 자리만 다시 보면 금방 더 좋아질 거예요.'
+  }
+
+  return '괜찮아요. 틀리면서 외우는 게 제일 빠를 때도 많아요. 바로 한 번 더 해봐요.'
+})
+
+function buildSessionResult() {
+  const stats = statsByMode[activeMode.value]
+  const totalAnswers = stats.totalAnswers
+  const correctAnswers = stats.correctAnswers
+
+  return {
+    mode: activeMode.value,
+    boxNumber: selectedBox.value,
+    totalAnswers,
+    correctAnswers,
+    bestStreak: stats.bestStreak,
+    accuracy: totalAnswers ? Math.round((correctAnswers / totalAnswers) * 100) : 0,
+  }
+}
+
 function clearAutoNextTimer() {
   if (autoNextTimer) {
     clearTimeout(autoNextTimer)
     autoNextTimer = null
   }
+}
+
+function clearCountdownTimer() {
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+function clearActiveTimers() {
+  clearAutoNextTimer()
+  clearCountdownTimer()
 }
 
 function buildNaturalChoices(correctNote) {
@@ -232,7 +338,12 @@ function getCurrentPool() {
 }
 
 function nextQuestion() {
-  clearAutoNextTimer()
+  clearActiveTimers()
+
+  if (!isRunning.value) {
+    currentQuestion.value = null
+    return
+  }
 
   const pool = getCurrentPool()
 
@@ -267,19 +378,23 @@ function nextQuestion() {
   isAnswered.value = false
   lastAnswerCorrect.value = false
   feedbackMessage.value = ''
+  timeLeft.value = QUESTION_TIME_LIMIT
+  startCountdown()
 }
 
-function scheduleNextQuestion() {
-  clearAutoNextTimer()
+function scheduleNextQuestion(delay) {
+  clearActiveTimers()
   autoNextTimer = setTimeout(() => {
     nextQuestion()
-  }, AUTO_NEXT_DELAY)
+  }, delay)
 }
 
 function answerQuestion(choice) {
-  if (!currentQuestion.value || isAnswered.value) {
+  if (!isRunning.value || !currentQuestion.value || isAnswered.value) {
     return
   }
+
+  clearCountdownTimer()
 
   const stats = currentStats.value
   let isCorrect = false
@@ -287,17 +402,17 @@ function answerQuestion(choice) {
   if (activeMode.value === 'natural') {
     isCorrect = choice === currentQuestion.value.note
     feedbackMessage.value = isCorrect
-      ? `정답입니다. ${currentQuestion.value.stringNumber}번 줄 ${currentQuestion.value.fret}프렛은 ${currentQuestion.value.note}입니다.`
-      : `오답입니다. 정답은 ${currentQuestion.value.note}이고, 위치는 ${currentQuestion.value.stringNumber}번 줄 ${currentQuestion.value.fret}프렛입니다.`
+      ? `정답입니다. ${currentQuestion.value.stringNumber}번 줄 ${getPositionLabel(currentQuestion.value.fret)}은 ${currentQuestion.value.note}입니다.`
+      : `오답입니다. 정답은 ${currentQuestion.value.note}이고, 위치는 ${currentQuestion.value.stringNumber}번 줄 ${getPositionLabel(currentQuestion.value.fret)}입니다.`
   } else {
     const expectedAnswer = currentQuestion.value.isRoot ? '루트(A)' : '루트 아님'
     isCorrect = choice === expectedAnswer
     feedbackMessage.value = isCorrect
       ? currentQuestion.value.isRoot
-        ? `정답입니다. ${currentQuestion.value.stringNumber}번 줄 ${currentQuestion.value.fret}프렛은 루트 A입니다.`
-        : `정답입니다. ${currentQuestion.value.stringNumber}번 줄 ${currentQuestion.value.fret}프렛은 루트가 아닙니다.`
+        ? `정답입니다. ${currentQuestion.value.stringNumber}번 줄 ${getPositionLabel(currentQuestion.value.fret)}은 루트 A입니다.`
+        : `정답입니다. ${currentQuestion.value.stringNumber}번 줄 ${getPositionLabel(currentQuestion.value.fret)}은 루트가 아닙니다.`
       : currentQuestion.value.isRoot
-        ? `오답입니다. 이 위치는 루트 A입니다. ${currentQuestion.value.stringNumber}번 줄 ${currentQuestion.value.fret}프렛을 기억해 두세요.`
+        ? `오답입니다. 이 위치는 루트 A입니다. ${currentQuestion.value.stringNumber}번 줄 ${getPositionLabel(currentQuestion.value.fret)}을 기억해 두세요.`
         : `오답입니다. 이 위치는 루트가 아닙니다. A minor pentatonic 박스 안의 다른 점들과 함께 비교해 보세요.`
   }
 
@@ -310,21 +425,90 @@ function answerQuestion(choice) {
     stats.correctAnswers += 1
     stats.currentStreak += 1
     stats.bestStreak = Math.max(stats.bestStreak, stats.currentStreak)
-    scheduleNextQuestion()
-    return
+    scheduleNextQuestion(CORRECT_NEXT_DELAY)
+  } else {
+    stats.currentStreak = 0
+    scheduleNextQuestion(WRONG_NEXT_DELAY)
   }
-
-  stats.currentStreak = 0
 }
 
 function resetCurrentModeStats() {
   Object.assign(statsByMode[activeMode.value], createStats())
 }
 
-function resetProgress() {
-  clearAutoNextTimer()
+function markTimedOutAnswer() {
+  if (!isRunning.value || !currentQuestion.value || isAnswered.value) {
+    return
+  }
+
+  const stats = currentStats.value
+
+  isAnswered.value = true
+  lastAnswerCorrect.value = false
+  selectedAnswer.value = ''
+  stats.totalAnswers += 1
+  stats.currentStreak = 0
+
+  if (activeMode.value === 'natural') {
+    feedbackMessage.value = `시간 초과입니다. 정답은 ${currentQuestion.value.note}이고, 위치는 ${currentQuestion.value.stringNumber}번 줄 ${getPositionLabel(currentQuestion.value.fret)}입니다.`
+  } else {
+    feedbackMessage.value = currentQuestion.value.isRoot
+      ? `시간 초과입니다. 이 위치는 루트 A입니다.`
+      : '시간 초과입니다. 이 위치는 루트가 아닙니다.'
+  }
+
+  scheduleNextQuestion(WRONG_NEXT_DELAY)
+}
+
+function startCountdown() {
+  clearCountdownTimer()
+
+  countdownTimer = setInterval(() => {
+    if (!isRunning.value || isAnswered.value) {
+      clearCountdownTimer()
+      return
+    }
+
+    if (timeLeft.value <= 1) {
+      timeLeft.value = 0
+      clearCountdownTimer()
+      markTimedOutAnswer()
+      return
+    }
+
+    timeLeft.value -= 1
+  }, 1000)
+}
+
+function stopQuiz(showResults = true) {
+  const shouldShowResult = showResults && isRunning.value
+
+  isRunning.value = false
+  clearActiveTimers()
+  currentQuestion.value = null
+  selectedAnswer.value = ''
+  isAnswered.value = false
+  lastAnswerCorrect.value = false
+  feedbackMessage.value = ''
+  timeLeft.value = QUESTION_TIME_LIMIT
+
+  if (shouldShowResult) {
+    lastSessionResult.value = buildSessionResult()
+    showResultModal.value = true
+  }
+}
+
+function startQuiz() {
+  showResultModal.value = false
+  lastSessionResult.value = null
   resetCurrentModeStats()
+  isRunning.value = true
+  timeLeft.value = QUESTION_TIME_LIMIT
   nextQuestion()
+}
+
+function closeResultModal() {
+  showResultModal.value = false
 }
 
 function switchMode(mode) {
@@ -332,8 +516,10 @@ function switchMode(mode) {
     return
   }
 
+  showResultModal.value = false
+  lastSessionResult.value = null
   activeMode.value = mode
-  nextQuestion()
+  stopQuiz(false)
 }
 
 function selectBox(boxNumber) {
@@ -344,7 +530,9 @@ function selectBox(boxNumber) {
   selectedBox.value = boxNumber
 
   if (activeMode.value === 'pentatonic') {
-    nextQuestion()
+    if (isRunning.value) {
+      nextQuestion()
+    }
   }
 }
 
@@ -380,11 +568,11 @@ function getQuestionMarkerStyle(cell) {
 }
 
 onMounted(() => {
-  nextQuestion()
+  stopQuiz(false)
 })
 
 onBeforeUnmount(() => {
-  clearAutoNextTimer()
+  clearActiveTimers()
 })
 </script>
 
@@ -412,7 +600,21 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <span class="board-title">사랑하는 아들 우주를 위한 기타지판퀴즈</span>
+          <span class="board-title">사랑하는 우주 하늘을 위한 기타지판퀴즈</span>
+
+          <div class="session-controls">
+            <button type="button" class="session-button start" @click="startQuiz">
+              시작
+            </button>
+            <button
+              type="button"
+              class="session-button stop"
+              :disabled="!isRunning"
+              @click="stopQuiz"
+            >
+              종료
+            </button>
+          </div>
         </div>
 
         <div class="stats-inline">
@@ -420,9 +622,7 @@ onBeforeUnmount(() => {
           <span>총문제 <strong>{{ currentStats.totalAnswers }}</strong></span>
           <span>정답률 <strong>{{ accuracy }}%</strong></span>
           <span>최고연속 <strong>{{ currentStats.bestStreak }}</strong></span>
-          <button type="button" class="stat-reset-button" @click="resetProgress">
-            초기화
-          </button>
+          <span>남은초 <strong>{{ isRunning ? timeLeft : '-' }}</strong></span>
         </div>
       </div>
 
@@ -525,7 +725,7 @@ onBeforeUnmount(() => {
 
     <section class="card quiz-card">
       <div
-        v-if="currentQuestion"
+        v-if="currentQuestion && isRunning"
         class="choices-grid"
         :class="{ 'is-binary': activeMode === 'pentatonic' }"
       >
@@ -575,6 +775,46 @@ onBeforeUnmount(() => {
         {{ feedbackMessage }}
       </div>
     </section>
+
+    <div
+      v-if="showResultModal && lastSessionResult"
+      class="result-modal-backdrop"
+      @click.self="closeResultModal"
+    >
+      <div class="result-modal">
+        <p class="result-kicker">{{ resultModeLabel }}</p>
+        <h2 class="result-title">{{ resultHeadline }}</h2>
+        <p class="result-copy">{{ resultCopy }}</p>
+
+        <div class="result-grid">
+          <article class="result-card">
+            <span>정답</span>
+            <strong>{{ lastSessionResult.correctAnswers }}</strong>
+          </article>
+          <article class="result-card">
+            <span>총 문제</span>
+            <strong>{{ lastSessionResult.totalAnswers }}</strong>
+          </article>
+          <article class="result-card">
+            <span>정답률</span>
+            <strong>{{ lastSessionResult.accuracy }}%</strong>
+          </article>
+          <article class="result-card">
+            <span>최고 연속</span>
+            <strong>{{ lastSessionResult.bestStreak }}</strong>
+          </article>
+        </div>
+
+        <div class="result-actions">
+          <button type="button" class="result-button secondary" @click="closeResultModal">
+            닫기
+          </button>
+          <button type="button" class="result-button primary" @click="startQuiz">
+            다시 시작
+          </button>
+        </div>
+      </div>
+    </div>
   </main>
 </template>
 
@@ -626,6 +866,38 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.session-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-button {
+  min-height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.session-button.start {
+  color: #fff8f1;
+  background: linear-gradient(135deg, #bb5a2f, #e38b2d);
+}
+
+.session-button.stop {
+  color: #5a4331;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(121, 88, 56, 0.14);
+}
+
+.session-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .mode-toggle {
   display: inline-flex;
   gap: 6px;
@@ -672,18 +944,6 @@ onBeforeUnmount(() => {
 .stats-inline strong {
   color: #1f140d;
   font-size: 0.82rem;
-}
-
-.stat-reset-button {
-  min-height: 18px;
-  padding: 0 5px;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(121, 88, 56, 0.12);
-  color: #6a5038;
-  font: inherit;
-  font-size: 0.62rem;
-  cursor: pointer;
 }
 
 .box-toolbar {
@@ -752,6 +1012,7 @@ onBeforeUnmount(() => {
 .board-area {
   --board-height: 150px;
   --board-pad: 12px;
+  --open-space: 8%;
   position: relative;
   height: var(--board-height);
 }
@@ -799,7 +1060,7 @@ onBeforeUnmount(() => {
 }
 
 .nut-line {
-  left: 0;
+  left: var(--open-space);
   top: -2px;
   bottom: -2px;
   width: 5px;
@@ -952,8 +1213,8 @@ onBeforeUnmount(() => {
 .choice-button:focus-visible,
 .mode-button:focus-visible,
 .box-button:focus-visible,
-.primary-button:focus-visible,
-.secondary-button:focus-visible {
+.session-button:focus-visible,
+.result-button:focus-visible {
   outline: 3px solid rgba(255, 164, 65, 0.6);
   outline-offset: 2px;
 }
@@ -1012,6 +1273,107 @@ onBeforeUnmount(() => {
   border-color: rgba(193, 93, 71, 0.18);
 }
 
+.result-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(38, 25, 16, 0.38);
+  backdrop-filter: blur(6px);
+}
+
+.result-modal {
+  width: min(460px, 100%);
+  padding: 22px;
+  border-radius: 26px;
+  border: 1px solid rgba(76, 52, 31, 0.12);
+  background:
+    radial-gradient(circle at top right, rgba(245, 204, 143, 0.3), transparent 34%),
+    linear-gradient(180deg, rgba(255, 252, 246, 0.98), rgba(246, 236, 222, 0.98));
+  box-shadow:
+    0 24px 50px rgba(44, 27, 16, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.result-kicker {
+  margin: 0;
+  color: #8a6540;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.result-title {
+  margin: 8px 0 0;
+  color: #2b1d13;
+  font-size: clamp(1.4rem, 2.6vw, 2rem);
+  line-height: 1.05;
+}
+
+.result-copy {
+  margin: 10px 0 0;
+  color: #6a5038;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.result-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.result-card {
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(121, 88, 56, 0.1);
+}
+
+.result-card span {
+  display: block;
+  color: #876646;
+  font-size: 0.76rem;
+}
+
+.result-card strong {
+  display: block;
+  margin-top: 6px;
+  color: #24170f;
+  font-size: 1.4rem;
+}
+
+.result-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.result-button {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.result-button.primary {
+  color: #fff8f1;
+  background: linear-gradient(135deg, #bb5a2f, #e38b2d);
+}
+
+.result-button.secondary {
+  color: #5a4331;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(121, 88, 56, 0.14);
+}
+
 @media (max-width: 980px) {
   .app-shell {
     width: min(100% - 16px, 100%);
@@ -1044,6 +1406,12 @@ onBeforeUnmount(() => {
   .board-title {
     font-size: 0.64rem;
     white-space: normal;
+  }
+
+  .session-button {
+    min-height: 20px;
+    padding: 0 7px;
+    font-size: 0.62rem;
   }
 
   .fretboard-figure {
@@ -1103,9 +1471,18 @@ onBeforeUnmount(() => {
     justify-content: flex-end;
   }
 
-  .stat-reset-button {
-    padding: 0 4px;
-    font-size: 0.56rem;
+  .result-modal {
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .result-grid {
+    gap: 8px;
+  }
+
+  .result-card {
+    padding: 12px;
+    border-radius: 16px;
   }
 }
 </style>
