@@ -1,9 +1,24 @@
-<script setup>
+﻿<script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 const CHROMATIC_SCALE = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 const NATURAL_NOTES = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
-const PENTATONIC_ROOT_NOTE = 'A'
+const PENTATONIC_TYPE_CONFIG = {
+  minor: {
+    buttonLabel: 'Minor Pentatonic',
+    scaleSuffix: 'minor',
+    intervals: [0, 3, 5, 7, 10],
+    degreeLabels: ['R', 'b3', '4', '5', 'b7'],
+    commonKeys: ['A', 'E', 'D', 'G', 'C'],
+  },
+  major: {
+    buttonLabel: 'Major Pentatonic',
+    scaleSuffix: 'major',
+    intervals: [0, 2, 4, 7, 9],
+    degreeLabels: ['R', '2', '3', '5', '6'],
+    commonKeys: ['C', 'G', 'D', 'A', 'E'],
+  },
+}
 const STRING_TUNINGS = [
   { stringNumber: 1, openNote: 'E' },
   { stringNumber: 2, openNote: 'B' },
@@ -12,68 +27,102 @@ const STRING_TUNINGS = [
   { stringNumber: 5, openNote: 'A' },
   { stringNumber: 6, openNote: 'E' },
 ]
+const OPEN_STRING_MIDI = {
+  1: 64,
+  2: 59,
+  3: 55,
+  4: 50,
+  5: 45,
+  6: 40,
+}
 const POSITION_MARKER_FRETS = [3, 5, 7, 9, 12]
 const VISIBLE_FRET_COUNT = 13
 const OPEN_AREA_RATIO = 0.08
 const CORRECT_NEXT_DELAY = 900
 const WRONG_NEXT_DELAY = 1400
-const QUESTION_TIME_LIMIT = 5
+const HARD_QUESTION_TIME_LIMIT = 5
+const EASY_QUESTION_TIME_LIMIT = 10
+const EASY_HINT_REVEAL_AFTER = 7
+const BONUS_ROUND_INTERVAL = 5
+const BONUS_ROUND_TIME_LIMIT = 8
 const FRET_LIST = Array.from({ length: VISIBLE_FRET_COUNT }, (_, index) => index + 1)
-const PENTATONIC_BOXES = [
+const RESULT_MESSAGES = {
+  idle: {
+    headlines: ['준비 완료', '워밍업 대기 중', '시작하면 바로 감이 와요'],
+    copies: [
+      '아직 기록이 없어요. 가볍게 한 판 시작해서 오늘 지판 감각부터 깨워봐요.',
+      '첫 판은 항상 탐색전이에요. 시작 버튼만 누르면 바로 손이 풀리기 시작할 거예요.',
+      '지금은 몸 풀기 전이에요. 몇 문제만 지나도 어디가 헷갈리는지 금방 보일 거예요.',
+    ],
+  },
+  excellent: {
+    headlines: ['오늘 완전 감 잡았어요', '지판 감각이 제대로 올라왔어요', '이 정도면 정말 잘하고 있어요'],
+    copies: [
+      '눈으로 보고 바로 떠올리는 속도가 좋네요. 지금 페이스면 다음 판은 더 빠르게도 갈 수 있어요.',
+      '정확도와 흐름이 둘 다 좋았어요. 손과 귀가 지판을 같이 기억하기 시작한 느낌이에요.',
+      '이 정도면 외운 게 아니라 몸에 붙고 있는 단계예요. 조금만 더 하면 훨씬 편해질 거예요.',
+    ],
+  },
+  good: {
+    headlines: ['좋아요, 흐름이 올라오고 있어요', '이제 점점 손에 붙고 있어요', '지금 페이스 좋습니다'],
+    copies: [
+      '헷갈리는 자리 몇 군데만 다시 보면 다음 판에서 훨씬 또렷해질 거예요.',
+      '좋은 흐름이에요. 지금 틀린 자리만 조금 더 보면 정확도가 금방 올라갈 거예요.',
+      '이미 감각은 들어왔어요. 몇 번만 더 반복하면 지판이 훨씬 편하게 보일 거예요.',
+    ],
+  },
+  warming: {
+    headlines: ['조금씩 잡히고 있어요', '방향은 맞아요', '지금부터 더 재밌어집니다'],
+    copies: [
+      '틀린 자리만 다시 보면 다음 판이 확 달라질 거예요. 지금부터가 진짜 시작이에요.',
+      '아직 섞여 보일 수 있지만 괜찮아요. 자주 나오는 자리부터 하나씩 손에 붙을 거예요.',
+      '반응 속도보다 익숙해지는 과정이 더 중요해요. 한 판 더 가면 훨씬 정리될 거예요.',
+    ],
+  },
+  retry: {
+    headlines: ['괜찮아요, 지금부터예요', '처음엔 누구나 헷갈려요', '한 판 더 하면 달라져요'],
+    copies: [
+      '처음엔 헷갈리는 게 당연해요. 방금 틀린 자리부터 다시 보면 금방 감이 생길 거예요.',
+      '틀리면서 외우는 속도가 생각보다 빠릅니다. 부담 없이 한 번 더 해보면 바로 달라질 수 있어요.',
+      '지금은 외워가는 중이에요. 천천히 한 판 더 가면 지판이 훨씬 덜 낯설게 느껴질 거예요.',
+    ],
+  },
+}
+const PENTATONIC_POSITION_LAYOUTS = [
   {
-    boxNumber: 1,
-    fretsByString: {
-      1: [5, 8],
-      2: [5, 8],
-      3: [5, 7],
-      4: [5, 7],
-      5: [5, 7],
-      6: [5, 8],
-    },
+    positionKey: 'C',
+    positionLabel: 'C pos',
+    color: '#8c67f3',
+    minFret: 0,
+    maxFret: 3,
   },
   {
-    boxNumber: 2,
-    fretsByString: {
-      1: [8, 10],
-      2: [8, 10],
-      3: [7, 9],
-      4: [7, 10],
-      5: [7, 10],
-      6: [8, 10],
-    },
+    positionKey: 'A',
+    positionLabel: 'A pos',
+    color: '#4ba86c',
+    minFret: 2,
+    maxFret: 5,
   },
   {
-    boxNumber: 3,
-    fretsByString: {
-      1: [10, 12],
-      2: [10, 13],
-      3: [9, 12],
-      4: [10, 12],
-      5: [10, 12],
-      6: [10, 12],
-    },
+    positionKey: 'G',
+    positionLabel: 'G pos',
+    color: '#e25757',
+    minFret: 5,
+    maxFret: 8,
   },
   {
-    boxNumber: 4,
-    fretsByString: {
-      1: [3],
-      2: [1, 3],
-      3: [2],
-      4: [2],
-      5: [3],
-      6: [3],
-    },
+    positionKey: 'E',
+    positionLabel: 'E pos',
+    color: '#e5c14b',
+    minFret: 7,
+    maxFret: 10,
   },
   {
-    boxNumber: 5,
-    fretsByString: {
-      1: [3, 5],
-      2: [3, 5],
-      3: [2, 5],
-      4: [2, 5],
-      5: [3, 5],
-      6: [3, 5],
-    },
+    positionKey: 'D',
+    positionLabel: 'D pos',
+    color: '#4e8df0',
+    minFret: 9,
+    maxFret: 13,
   },
 ]
 
@@ -81,14 +130,21 @@ const noteIndexMap = Object.fromEntries(CHROMATIC_SCALE.map((note, index) => [no
 const highestVisibleFretRatio = 1 - Math.pow(2, -VISIBLE_FRET_COUNT / 12)
 
 const activeMode = ref('natural')
-const selectedBox = ref(1)
+const difficultyMode = ref('easy')
+const pentatonicType = ref('minor')
+const selectedPentatonicKeys = reactive({
+  minor: PENTATONIC_TYPE_CONFIG.minor.commonKeys[0],
+  major: PENTATONIC_TYPE_CONFIG.major.commonKeys[0],
+})
+const selectedPosition = ref('C')
 const currentQuestion = ref(null)
 const selectedAnswer = ref('')
 const isAnswered = ref(false)
 const lastAnswerCorrect = ref(false)
 const feedbackMessage = ref('')
 const isRunning = ref(false)
-const timeLeft = ref(QUESTION_TIME_LIMIT)
+const timeLeft = ref(EASY_QUESTION_TIME_LIMIT)
+const bonusRound = ref(null)
 const showResultModal = ref(false)
 const lastSessionResult = ref(null)
 const statsByMode = reactive({
@@ -98,6 +154,7 @@ const statsByMode = reactive({
 
 let autoNextTimer = null
 let countdownTimer = null
+let audioContext = null
 
 function createStats() {
   return {
@@ -119,9 +176,149 @@ function shuffle(list) {
   return copied
 }
 
+function getStableMessageIndex(seed, length) {
+  let hash = 0
+
+  for (const character of seed) {
+    hash = (hash * 31 + character.charCodeAt(0)) % 2147483647
+  }
+
+  return hash % length
+}
+
+function pickStableMessage(messages, seed) {
+  return messages[getStableMessageIndex(seed, messages.length)]
+}
+
+function getResultTier(result) {
+  if (result.totalAnswers === 0) {
+    return 'idle'
+  }
+
+  if (result.accuracy >= 90) {
+    return 'excellent'
+  }
+
+  if (result.accuracy >= 70) {
+    return 'good'
+  }
+
+  if (result.accuracy >= 40) {
+    return 'warming'
+  }
+
+  return 'retry'
+}
+
+function buildResultNarration(result) {
+  const tier = getResultTier(result)
+  const messages = RESULT_MESSAGES[tier]
+  const seedBase = [
+    result.mode,
+    result.scaleLabel ?? 'natural',
+    result.positionKey ?? 'none',
+    result.totalAnswers,
+    result.correctAnswers,
+    result.bestStreak,
+  ].join('-')
+
+  return {
+    headline: pickStableMessage(messages.headlines, `headline-${seedBase}`),
+    copy: pickStableMessage(messages.copies, `copy-${seedBase}`),
+  }
+}
+
 function getNoteAtFret(openNote, fret) {
   const startIndex = noteIndexMap[openNote]
   return CHROMATIC_SCALE[(startIndex + fret) % CHROMATIC_SCALE.length]
+}
+
+function getNoteFromInterval(rootNote, interval) {
+  return CHROMATIC_SCALE[(noteIndexMap[rootNote] + interval) % CHROMATIC_SCALE.length]
+}
+
+function buildScaleNotes(rootNote, intervals) {
+  return intervals.map((interval) => getNoteFromInterval(rootNote, interval))
+}
+
+function getAudioContext() {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext
+
+  if (!AudioContextClass) {
+    return null
+  }
+
+  if (!audioContext) {
+    audioContext = new AudioContextClass()
+  }
+
+  return audioContext
+}
+
+function getCellFrequency(cell) {
+  const midiNote = OPEN_STRING_MIDI[cell.stringNumber] + cell.fret
+  return 440 * Math.pow(2, (midiNote - 69) / 12)
+}
+
+function playCellNote(cell) {
+  const context = getAudioContext()
+
+  if (!context || !cell) {
+    return
+  }
+
+  const schedulePlayback = () => {
+    const now = context.currentTime
+    const frequency = getCellFrequency(cell)
+    const oscillator = context.createOscillator()
+    const overtoneOscillator = context.createOscillator()
+    const filter = context.createBiquadFilter()
+    const gainNode = context.createGain()
+
+    oscillator.type = 'triangle'
+    oscillator.frequency.setValueAtTime(frequency, now)
+
+    overtoneOscillator.type = 'sine'
+    overtoneOscillator.frequency.setValueAtTime(frequency * 2, now)
+    overtoneOscillator.detune.setValueAtTime(4, now)
+
+    filter.type = 'lowpass'
+    filter.frequency.setValueAtTime(2400, now)
+    filter.Q.setValueAtTime(0.6, now)
+
+    gainNode.gain.setValueAtTime(0.0001, now)
+    gainNode.gain.exponentialRampToValueAtTime(0.16, now + 0.02)
+    gainNode.gain.exponentialRampToValueAtTime(0.05, now + 0.16)
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.95)
+
+    oscillator.connect(filter)
+    overtoneOscillator.connect(filter)
+    filter.connect(gainNode)
+    gainNode.connect(context.destination)
+
+    oscillator.start(now)
+    overtoneOscillator.start(now)
+    oscillator.stop(now + 1)
+    overtoneOscillator.stop(now + 1)
+
+    oscillator.onended = () => {
+      oscillator.disconnect()
+      overtoneOscillator.disconnect()
+      filter.disconnect()
+      gainNode.disconnect()
+    }
+  }
+
+  if (context.state === 'suspended') {
+    context.resume().then(schedulePlayback).catch(() => {})
+    return
+  }
+
+  schedulePlayback()
 }
 
 function getStringPercent(stringNumber) {
@@ -188,38 +385,101 @@ const fretCellMap = new Map(
 
 const naturalQuizPool = fretboard.flatMap((row) => row.frets.filter((cell) => cell.isNatural))
 
-const pentatonicBoxes = PENTATONIC_BOXES.map(({ boxNumber, fretsByString }) => {
-  const cells = Object.entries(fretsByString)
-    .flatMap(([stringNumber, frets]) =>
-      frets
-        .map((fret) => fretCellMap.get(`${stringNumber}-${fret}`))
-        .filter(Boolean)
-        .map((cell) => ({
-          ...cell,
-          isRoot: cell.note === PENTATONIC_ROOT_NOTE,
-        })),
-    )
-    .sort((left, right) => {
-      if (left.stringNumber === right.stringNumber) {
-        return left.fret - right.fret
-      }
+const currentPentatonicConfig = computed(() => PENTATONIC_TYPE_CONFIG[pentatonicType.value])
+const currentPentatonicKey = computed(() => selectedPentatonicKeys[pentatonicType.value])
+const currentPentatonicScaleLabel = computed(
+  () => `${currentPentatonicKey.value} ${currentPentatonicConfig.value.scaleSuffix}`,
+)
+const currentPentatonicScaleNotes = computed(() =>
+  buildScaleNotes(currentPentatonicKey.value, currentPentatonicConfig.value.intervals),
+)
+const currentPentatonicTargets = computed(() =>
+  currentPentatonicScaleNotes.value.map((note, index) => ({
+    degreeLabel: currentPentatonicConfig.value.degreeLabels[index],
+    note,
+    value: `${currentPentatonicConfig.value.degreeLabels[index]}:${note}`,
+  })),
+)
+const pentatonicTargetByNote = computed(
+  () => new Map(currentPentatonicTargets.value.map((target) => [target.note, target])),
+)
+const commonPentatonicKeys = computed(() => currentPentatonicConfig.value.commonKeys)
+const pentatonicPositions = computed(() =>
+  PENTATONIC_POSITION_LAYOUTS.map((position) => {
+    const cells = fretboard
+      .flatMap((row) =>
+        row.frets
+          .filter(
+            (cell) =>
+              cell.fret >= position.minFret &&
+              cell.fret <= position.maxFret &&
+              currentPentatonicScaleNotes.value.includes(cell.note),
+          )
+          .map((cell) => {
+            const target = pentatonicTargetByNote.value.get(cell.note)
 
-      return left.stringNumber - right.stringNumber
-    })
+            return {
+              ...cell,
+              degreeLabel: target?.degreeLabel ?? '',
+              choiceValue: target?.value ?? cell.note,
+              isRoot: cell.note === currentPentatonicKey.value,
+            }
+          }),
+      )
+      .sort((left, right) => {
+        if (left.stringNumber === right.stringNumber) {
+          return left.fret - right.fret
+        }
 
-  return {
-    boxNumber,
-    cells,
-  }
-})
+        return left.stringNumber - right.stringNumber
+      })
+
+    return {
+      ...position,
+      cells,
+    }
+  }),
+)
 
 const currentStats = computed(() => statsByMode[activeMode.value])
-const selectedPentatonicBox = computed(
-  () => pentatonicBoxes.find((box) => box.boxNumber === selectedBox.value) ?? pentatonicBoxes[0],
+const currentQuestionTimeLimit = computed(() =>
+  difficultyMode.value === 'easy' ? EASY_QUESTION_TIME_LIMIT : HARD_QUESTION_TIME_LIMIT,
 )
-const visibleBoxCells = computed(() =>
-  activeMode.value === 'pentatonic' ? selectedPentatonicBox.value.cells : [],
+const selectedPentatonicPosition = computed(
+  () =>
+    pentatonicPositions.value.find((position) => position.positionKey === selectedPosition.value) ??
+    pentatonicPositions.value[0],
 )
+const visiblePositionCells = computed(() =>
+  activeMode.value === 'pentatonic' ? selectedPentatonicPosition.value?.cells ?? [] : [],
+)
+const visiblePositionZones = computed(() =>
+  activeMode.value === 'pentatonic' && selectedPentatonicPosition.value
+    ? [selectedPentatonicPosition.value]
+    : [],
+)
+const visibleRootCells = computed(() => visiblePositionCells.value.filter((cell) => cell.isRoot))
+const isBonusRoundActive = computed(() => Boolean(bonusRound.value))
+const bonusProgressLabel = computed(() => {
+  if (!bonusRound.value) {
+    return ''
+  }
+
+  return `${bonusRound.value.foundKeys.length}/${bonusRound.value.rootKeys.length}`
+})
+const showQuestionNoteHint = computed(() => {
+  if (
+    difficultyMode.value !== 'easy' ||
+    !currentQuestion.value ||
+    isBonusRoundActive.value ||
+    !isRunning.value ||
+    isAnswered.value
+  ) {
+    return false
+  }
+
+  return timeLeft.value <= EASY_QUESTION_TIME_LIMIT - EASY_HINT_REVEAL_AFTER
+})
 const accuracy = computed(() => {
   if (!currentStats.value.totalAnswers) {
     return 0
@@ -233,23 +493,7 @@ const resultHeadline = computed(() => {
     return ''
   }
 
-  if (lastSessionResult.value.totalAnswers === 0) {
-    return '아직 몸 풀기 전이에요'
-  }
-
-  if (lastSessionResult.value.accuracy >= 90) {
-    return '와, 정말 대단해요'
-  }
-
-  if (lastSessionResult.value.accuracy >= 70) {
-    return '아주 잘하고 있어요'
-  }
-
-  if (lastSessionResult.value.accuracy >= 40) {
-    return '조금만 더 하면 잡혀요'
-  }
-
-  return '괜찮아요, 다시 해보면 돼요'
+  return lastSessionResult.value.headline
 })
 
 const resultModeLabel = computed(() => {
@@ -259,7 +503,7 @@ const resultModeLabel = computed(() => {
 
   return lastSessionResult.value.mode === 'natural'
     ? '자연음 퀴즈 결과'
-    : `A minor pentatonic box ${lastSessionResult.value.boxNumber} 결과`
+    : `${lastSessionResult.value.scaleLabel} ${lastSessionResult.value.positionLabel} 도수/음이름 퀴즈 결과`
 })
 
 const resultCopy = computed(() => {
@@ -267,37 +511,29 @@ const resultCopy = computed(() => {
     return ''
   }
 
-  if (lastSessionResult.value.totalAnswers === 0) {
-    return '시작 버튼만 누르면 우주 하늘 기타 탐험이 바로 시작돼요.'
-  }
-
-  if (lastSessionResult.value.accuracy >= 90) {
-    return '지판이 손에 꽤 익었어요. 지금 흐름이면 우주 하늘 앞에서 멋지게 뽐낼 수 있겠어요.'
-  }
-
-  if (lastSessionResult.value.accuracy >= 70) {
-    return '감이 아주 좋아요. 몇 번만 더 하면 위치가 더 또렷하게 기억날 거예요.'
-  }
-
-  if (lastSessionResult.value.accuracy >= 40) {
-    return '충분히 잘 가고 있어요. 조금 헷갈린 자리만 다시 보면 금방 더 좋아질 거예요.'
-  }
-
-  return '괜찮아요. 틀리면서 외우는 게 제일 빠를 때도 많아요. 바로 한 번 더 해봐요.'
+  return lastSessionResult.value.copy
 })
 
 function buildSessionResult() {
   const stats = statsByMode[activeMode.value]
   const totalAnswers = stats.totalAnswers
   const correctAnswers = stats.correctAnswers
-
-  return {
+  const result = {
     mode: activeMode.value,
-    boxNumber: selectedBox.value,
+    pentatonicType: pentatonicType.value,
+    scaleLabel: currentPentatonicScaleLabel.value,
+    positionKey: selectedPosition.value,
+    positionLabel: selectedPentatonicPosition.value.positionLabel,
     totalAnswers,
     correctAnswers,
     bestStreak: stats.bestStreak,
     accuracy: totalAnswers ? Math.round((correctAnswers / totalAnswers) * 100) : 0,
+  }
+  const narration = buildResultNarration(result)
+
+  return {
+    ...result,
+    ...narration,
   }
 }
 
@@ -322,11 +558,23 @@ function clearActiveTimers() {
 
 function buildNaturalChoices(correctNote) {
   const distractors = shuffle(NATURAL_NOTES.filter((note) => note !== correctNote)).slice(0, 3)
-  return shuffle([correctNote, ...distractors])
+  return shuffle([correctNote, ...distractors]).map((note) => ({
+    value: note,
+    note,
+  }))
 }
 
-function buildPentatonicChoices() {
-  return ['루트(A)', '루트 아님']
+function buildPentatonicChoices(correctChoiceValue) {
+  const correctTarget = currentPentatonicTargets.value.find((target) => target.value === correctChoiceValue)
+  const distractors = shuffle(
+    currentPentatonicTargets.value.filter((target) => target.value !== correctChoiceValue),
+  ).slice(0, 3)
+
+  return shuffle([correctTarget, ...distractors].filter(Boolean)).map((target) => ({
+    value: target.value,
+    degreeLabel: target.degreeLabel,
+    note: target.note,
+  }))
 }
 
 function getCurrentPool() {
@@ -334,11 +582,92 @@ function getCurrentPool() {
     return naturalQuizPool
   }
 
-  return selectedPentatonicBox.value.cells
+  return selectedPentatonicPosition.value?.cells ?? []
+}
+
+function isCorrectChoice(choice, question = currentQuestion.value) {
+  if (!question) {
+    return false
+  }
+
+  const choiceValue = choice?.value ?? choice
+
+  return choiceValue === question.correctAnswer
+}
+
+function shouldTriggerBonusRound(stats) {
+  return (
+    activeMode.value === 'pentatonic' &&
+    stats.correctAnswers > 0 &&
+    stats.correctAnswers % BONUS_ROUND_INTERVAL === 0 &&
+    visibleRootCells.value.length > 0
+  )
+}
+
+function startBonusRound() {
+  clearActiveTimers()
+
+  bonusRound.value = {
+    rootKeys: visibleRootCells.value.map((cell) => cell.key),
+    foundKeys: [],
+  }
+  currentQuestion.value = null
+  selectedAnswer.value = ''
+  isAnswered.value = false
+  lastAnswerCorrect.value = false
+  feedbackMessage.value = `보너스입니다. ${selectedPentatonicPosition.value.positionLabel} 안의 루트 ${currentPentatonicKey.value}를 모두 찾아보세요.`
+  timeLeft.value = BONUS_ROUND_TIME_LIMIT
+  startCountdown()
+}
+
+function finishBonusRound(success, timedOut = false) {
+  const foundCount = bonusRound.value?.foundKeys.length ?? 0
+  const rootCount = bonusRound.value?.rootKeys.length ?? 0
+
+  clearCountdownTimer()
+  bonusRound.value = null
+  currentQuestion.value = null
+  selectedAnswer.value = ''
+  isAnswered.value = true
+  lastAnswerCorrect.value = success
+  feedbackMessage.value = success
+    ? `보너스 성공입니다. ${selectedPentatonicPosition.value.positionLabel}에서 루트 ${currentPentatonicKey.value}를 모두 찾았어요.`
+    : `보너스 종료입니다. 루트 ${currentPentatonicKey.value}를 ${foundCount}/${rootCount} 찾았어요.`
+
+  scheduleNextQuestion(success ? CORRECT_NEXT_DELAY : WRONG_NEXT_DELAY)
+}
+
+function handlePositionCellClick(cell) {
+  if (!isBonusRoundActive.value || !bonusRound.value) {
+    return
+  }
+
+  if (!cell.isRoot) {
+    feedbackMessage.value = `여긴 ${cell.degreeLabel} / ${cell.note}예요. 루트 ${currentPentatonicKey.value}를 다시 찾아보세요.`
+    return
+  }
+
+  if (bonusRound.value.foundKeys.includes(cell.key)) {
+    return
+  }
+
+  const foundKeys = [...bonusRound.value.foundKeys, cell.key]
+  bonusRound.value = {
+    ...bonusRound.value,
+    foundKeys,
+  }
+
+  playCellNote(cell)
+  feedbackMessage.value = `좋아요. 루트 ${currentPentatonicKey.value}를 ${foundKeys.length}/${bonusRound.value.rootKeys.length} 찾았어요.`
+
+  if (foundKeys.length === bonusRound.value.rootKeys.length) {
+    finishBonusRound(true)
+  }
 }
 
 function nextQuestion() {
   clearActiveTimers()
+  bonusRound.value = null
 
   if (!isRunning.value) {
     currentQuestion.value = null
@@ -363,14 +692,16 @@ function nextQuestion() {
     currentQuestion.value = {
       ...nextCell,
       quizType: 'natural',
+      correctAnswer: nextCell.note,
       choices: buildNaturalChoices(nextCell.note),
     }
   } else {
     currentQuestion.value = {
       ...nextCell,
       quizType: 'pentatonic',
-      isRoot: nextCell.note === PENTATONIC_ROOT_NOTE,
-      choices: buildPentatonicChoices(),
+      scaleLabel: currentPentatonicScaleLabel.value,
+      correctAnswer: nextCell.choiceValue,
+      choices: buildPentatonicChoices(nextCell.choiceValue),
     }
   }
 
@@ -378,7 +709,7 @@ function nextQuestion() {
   isAnswered.value = false
   lastAnswerCorrect.value = false
   feedbackMessage.value = ''
-  timeLeft.value = QUESTION_TIME_LIMIT
+  timeLeft.value = currentQuestionTimeLimit.value
   startCountdown()
 }
 
@@ -390,41 +721,47 @@ function scheduleNextQuestion(delay) {
 }
 
 function answerQuestion(choice) {
-  if (!isRunning.value || !currentQuestion.value || isAnswered.value) {
+  if (!isRunning.value || !currentQuestion.value || isAnswered.value || isBonusRoundActive.value) {
     return
   }
 
   clearCountdownTimer()
 
   const stats = currentStats.value
+  const choiceValue = choice?.value ?? choice
   let isCorrect = false
 
   if (activeMode.value === 'natural') {
-    isCorrect = choice === currentQuestion.value.note
+    isCorrect = choiceValue === currentQuestion.value.correctAnswer
     feedbackMessage.value = isCorrect
       ? `정답입니다. ${currentQuestion.value.stringNumber}번 줄 ${getPositionLabel(currentQuestion.value.fret)}은 ${currentQuestion.value.note}입니다.`
       : `오답입니다. 정답은 ${currentQuestion.value.note}이고, 위치는 ${currentQuestion.value.stringNumber}번 줄 ${getPositionLabel(currentQuestion.value.fret)}입니다.`
   } else {
-    const expectedAnswer = currentQuestion.value.isRoot ? '루트(A)' : '루트 아님'
-    isCorrect = choice === expectedAnswer
+    isCorrect = choiceValue === currentQuestion.value.correctAnswer
     feedbackMessage.value = isCorrect
-      ? currentQuestion.value.isRoot
-        ? `정답입니다. ${currentQuestion.value.stringNumber}번 줄 ${getPositionLabel(currentQuestion.value.fret)}은 루트 A입니다.`
-        : `정답입니다. ${currentQuestion.value.stringNumber}번 줄 ${getPositionLabel(currentQuestion.value.fret)}은 루트가 아닙니다.`
-      : currentQuestion.value.isRoot
-        ? `오답입니다. 이 위치는 루트 A입니다. ${currentQuestion.value.stringNumber}번 줄 ${getPositionLabel(currentQuestion.value.fret)}을 기억해 두세요.`
-        : `오답입니다. 이 위치는 루트가 아닙니다. A minor pentatonic 박스 안의 다른 점들과 함께 비교해 보세요.`
+      ? `정답입니다. ${currentQuestion.value.stringNumber}번 줄 ${getPositionLabel(currentQuestion.value.fret)}은 ${currentQuestion.value.degreeLabel} / ${currentQuestion.value.note}입니다.`
+      : `오답입니다. 정답은 ${currentQuestion.value.degreeLabel} / ${currentQuestion.value.note}이고, 위치는 ${currentQuestion.value.stringNumber}번 줄 ${getPositionLabel(currentQuestion.value.fret)}입니다.`
   }
 
-  selectedAnswer.value = choice
+  selectedAnswer.value = choiceValue
   isAnswered.value = true
   lastAnswerCorrect.value = isCorrect
   stats.totalAnswers += 1
 
   if (isCorrect) {
+    playCellNote(currentQuestion.value)
     stats.correctAnswers += 1
     stats.currentStreak += 1
     stats.bestStreak = Math.max(stats.bestStreak, stats.currentStreak)
+
+    if (shouldTriggerBonusRound(stats)) {
+      clearActiveTimers()
+      autoNextTimer = setTimeout(() => {
+        startBonusRound()
+      }, CORRECT_NEXT_DELAY)
+      return
+    }
+
     scheduleNextQuestion(CORRECT_NEXT_DELAY)
   } else {
     stats.currentStreak = 0
@@ -437,7 +774,16 @@ function resetCurrentModeStats() {
 }
 
 function markTimedOutAnswer() {
-  if (!isRunning.value || !currentQuestion.value || isAnswered.value) {
+  if (!isRunning.value) {
+    return
+  }
+
+  if (isBonusRoundActive.value) {
+    finishBonusRound(false, true)
+    return
+  }
+
+  if (!currentQuestion.value || isAnswered.value) {
     return
   }
 
@@ -452,9 +798,7 @@ function markTimedOutAnswer() {
   if (activeMode.value === 'natural') {
     feedbackMessage.value = `시간 초과입니다. 정답은 ${currentQuestion.value.note}이고, 위치는 ${currentQuestion.value.stringNumber}번 줄 ${getPositionLabel(currentQuestion.value.fret)}입니다.`
   } else {
-    feedbackMessage.value = currentQuestion.value.isRoot
-      ? `시간 초과입니다. 이 위치는 루트 A입니다.`
-      : '시간 초과입니다. 이 위치는 루트가 아닙니다.'
+    feedbackMessage.value = `시간 초과입니다. 정답은 ${currentQuestion.value.degreeLabel} / ${currentQuestion.value.note}입니다.`
   }
 
   scheduleNextQuestion(WRONG_NEXT_DELAY)
@@ -485,12 +829,13 @@ function stopQuiz(showResults = true) {
 
   isRunning.value = false
   clearActiveTimers()
+  bonusRound.value = null
   currentQuestion.value = null
   selectedAnswer.value = ''
   isAnswered.value = false
   lastAnswerCorrect.value = false
   feedbackMessage.value = ''
-  timeLeft.value = QUESTION_TIME_LIMIT
+  timeLeft.value = currentQuestionTimeLimit.value
 
   if (shouldShowResult) {
     lastSessionResult.value = buildSessionResult()
@@ -502,8 +847,9 @@ function startQuiz() {
   showResultModal.value = false
   lastSessionResult.value = null
   resetCurrentModeStats()
+  bonusRound.value = null
   isRunning.value = true
-  timeLeft.value = QUESTION_TIME_LIMIT
+  timeLeft.value = currentQuestionTimeLimit.value
   nextQuestion()
 }
 
@@ -522,17 +868,57 @@ function switchMode(mode) {
   stopQuiz(false)
 }
 
-function selectBox(boxNumber) {
-  if (selectedBox.value === boxNumber) {
+function refreshPentatonicQuiz() {
+  showResultModal.value = false
+  lastSessionResult.value = null
+  bonusRound.value = null
+
+  if (activeMode.value === 'pentatonic' && isRunning.value) {
+    startQuiz()
+  }
+}
+
+function handlePentatonicModeClick() {
+  if (activeMode.value === 'pentatonic') {
+    pentatonicType.value = pentatonicType.value === 'minor' ? 'major' : 'minor'
+    refreshPentatonicQuiz()
     return
   }
 
-  selectedBox.value = boxNumber
+  switchMode('pentatonic')
+}
 
-  if (activeMode.value === 'pentatonic') {
-    if (isRunning.value) {
-      nextQuestion()
-    }
+function selectPentatonicKey(key) {
+  if (selectedPentatonicKeys[pentatonicType.value] === key) {
+    return
+  }
+
+  selectedPentatonicKeys[pentatonicType.value] = key
+  refreshPentatonicQuiz()
+}
+
+function selectPosition(positionKey) {
+  if (selectedPosition.value === positionKey) {
+    return
+  }
+
+  selectedPosition.value = positionKey
+
+  if (activeMode.value === 'pentatonic' && isRunning.value) {
+    nextQuestion()
+  }
+}
+
+function selectDifficulty(mode) {
+  if (difficultyMode.value === mode) {
+    return
+  }
+
+  difficultyMode.value = mode
+
+  if (isRunning.value && currentQuestion.value && !isAnswered.value && !isBonusRoundActive.value) {
+    timeLeft.value = currentQuestionTimeLimit.value
+    startCountdown()
   }
 }
 
@@ -554,6 +940,16 @@ function getPositionMarkerStyle(fret) {
   }
 }
 
+function getPositionZoneStyle(position) {
+  const left = position.minFret === 0 ? 0 : getFretBoundaryPercent(position.minFret - 1)
+  const right = getFretBoundaryPercent(position.maxFret)
+
+  return {
+    left: `${left}%`,
+    width: `${right - left}%`,
+  }
+}
+
 function getFretNumberStyle(fret) {
   return {
     left: `${getFretPercent(fret)}%`,
@@ -567,12 +963,28 @@ function getQuestionMarkerStyle(cell) {
   }
 }
 
+function getPositionCellStyle(cell) {
+  return {
+    ...getQuestionMarkerStyle(cell),
+    '--position-marker-color': selectedPentatonicPosition.value.color,
+  }
+}
+
+function isFoundBonusRoot(cell) {
+  return bonusRound.value?.foundKeys.includes(cell.key) ?? false
+}
+
 onMounted(() => {
   stopQuiz(false)
 })
 
 onBeforeUnmount(() => {
   clearActiveTimers()
+
+  if (audioContext && audioContext.state !== 'closed') {
+    audioContext.close()
+    audioContext = null
+  }
 })
 </script>
 
@@ -594,13 +1006,32 @@ onBeforeUnmount(() => {
               type="button"
               class="mode-button"
               :class="{ active: activeMode === 'pentatonic' }"
-              @click="switchMode('pentatonic')"
+              @click="handlePentatonicModeClick"
             >
-              A minor pentatonic
+              {{ currentPentatonicConfig.buttonLabel }}
             </button>
           </div>
 
           <span class="board-title">사랑하는 우주 하늘을 위한 기타지판퀴즈</span>
+
+          <div class="difficulty-toggle">
+            <button
+              type="button"
+              class="difficulty-button"
+              :class="{ active: difficultyMode === 'easy' }"
+              @click="selectDifficulty('easy')"
+            >
+              Easy
+            </button>
+            <button
+              type="button"
+              class="difficulty-button"
+              :class="{ active: difficultyMode === 'hard' }"
+              @click="selectDifficulty('hard')"
+            >
+              Hard
+            </button>
+          </div>
 
           <div class="session-controls">
             <button type="button" class="session-button start" @click="startQuiz">
@@ -627,18 +1058,40 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="activeMode === 'pentatonic'" class="box-toolbar">
-        <span class="box-toolbar-label">Box</span>
-        <div class="box-toolbar-buttons">
-          <button
-            v-for="box in pentatonicBoxes"
-            :key="box.boxNumber"
-            type="button"
-            class="box-button"
-            :class="{ active: selectedBox === box.boxNumber }"
-            @click="selectBox(box.boxNumber)"
-          >
-            {{ box.boxNumber }}
-          </button>
+        <div class="box-toolbar-group">
+          <span class="box-toolbar-label">Pos</span>
+          <div class="box-toolbar-buttons">
+            <button
+              v-for="position in pentatonicPositions"
+              :key="position.positionKey"
+              type="button"
+              class="box-button"
+              :class="{ active: selectedPosition === position.positionKey }"
+              :style="{
+                '--position-color': position.color,
+                '--position-soft': `${position.color}22`,
+              }"
+              @click="selectPosition(position.positionKey)"
+            >
+              {{ position.positionLabel }}
+            </button>
+          </div>
+        </div>
+
+        <div class="scale-toolbar">
+          <span class="box-toolbar-label">Key</span>
+          <div class="scale-toolbar-buttons">
+            <button
+              v-for="key in commonPentatonicKeys"
+              :key="`${pentatonicType}-${key}`"
+              type="button"
+              class="scale-button"
+              :class="{ active: currentPentatonicKey === key }"
+              @click="selectPentatonicKey(key)"
+            >
+              {{ key }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -660,6 +1113,18 @@ onBeforeUnmount(() => {
           <div class="board-column">
             <div class="board-area">
               <div class="board-layer">
+                <div
+                  v-for="position in visiblePositionZones"
+                  :key="`zone-${position.positionKey}`"
+                  class="position-zone"
+                  :class="{ active: selectedPosition === position.positionKey }"
+                  :style="{
+                    ...getPositionZoneStyle(position),
+                    '--position-color': position.color,
+                    '--position-soft': `${position.color}22`,
+                  }"
+                ></div>
+
                 <div class="nut-line"></div>
 
                 <div
@@ -689,22 +1154,34 @@ onBeforeUnmount(() => {
                   <span v-else class="position-dot single"></span>
                 </div>
 
-                <div
-                  v-for="cell in visibleBoxCells"
-                  :key="`box-cell-${cell.key}`"
+                <button
+                  v-for="cell in visiblePositionCells"
+                  :key="`position-cell-${cell.key}`"
+                  type="button"
                   class="box-note-marker"
-                  :style="getQuestionMarkerStyle(cell)"
-                ></div>
+                  :class="{
+                    'is-bonus-active': isBonusRoundActive,
+                    'is-found': isFoundBonusRoot(cell),
+                  }"
+                  :style="getPositionCellStyle(cell)"
+                  :disabled="!isBonusRoundActive"
+                  @click="handlePositionCellClick(cell)"
+                ></button>
 
                 <div
-                  v-if="currentQuestion"
+                  v-if="currentQuestion && !isBonusRoundActive"
                   class="question-marker"
                   :class="{
                     correct: isAnswered && lastAnswerCorrect,
                     wrong: isAnswered && !lastAnswerCorrect,
+                    'with-note': showQuestionNoteHint,
                   }"
                   :style="getQuestionMarkerStyle(currentQuestion)"
-                ></div>
+                >
+                  <span v-if="showQuestionNoteHint" class="question-marker-note">
+                    {{ currentQuestion.note }}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -725,52 +1202,52 @@ onBeforeUnmount(() => {
 
     <section class="card quiz-card">
       <div
-        v-if="currentQuestion && isRunning"
+        v-if="isBonusRoundActive"
+        class="bonus-box"
+      >
+        <strong>보너스 라운드</strong>
+        <span>{{ selectedPentatonicPosition.positionLabel }} 안의 루트 {{ currentPentatonicKey }}를 모두 찾아보세요.</span>
+        <span class="bonus-progress">{{ bonusProgressLabel }}</span>
+        <span v-if="feedbackMessage" class="bonus-hint">{{ feedbackMessage }}</span>
+      </div>
+
+      <div
+        v-else-if="currentQuestion && isRunning"
         class="choices-grid"
-        :class="{ 'is-binary': activeMode === 'pentatonic' }"
       >
         <button
           v-for="(choice, index) in currentQuestion.choices"
-          :key="choice"
+          :key="choice.value"
           type="button"
           class="choice-button"
           :class="{
-            'is-correct':
-              isAnswered &&
-              ((activeMode === 'natural' && choice === currentQuestion.note) ||
-                (activeMode === 'pentatonic' &&
-                  ((currentQuestion.isRoot && choice === '루트(A)') ||
-                    (!currentQuestion.isRoot && choice === '루트 아님')))),
-            'is-wrong':
-              isAnswered &&
-              choice === selectedAnswer &&
-              !(
-                (activeMode === 'natural' && choice === currentQuestion.note) ||
-                (activeMode === 'pentatonic' &&
-                  ((currentQuestion.isRoot && choice === '루트(A)') ||
-                    (!currentQuestion.isRoot && choice === '루트 아님')))
-              ),
-            'is-muted':
-              isAnswered &&
-              choice !== selectedAnswer &&
-              !(
-                (activeMode === 'natural' && choice === currentQuestion.note) ||
-                (activeMode === 'pentatonic' &&
-                  ((currentQuestion.isRoot && choice === '루트(A)') ||
-                    (!currentQuestion.isRoot && choice === '루트 아님')))
-              ),
+            'is-correct': isAnswered && isCorrectChoice(choice),
+            'is-wrong': isAnswered && choice.value === selectedAnswer && !isCorrectChoice(choice),
+            'is-muted': isAnswered && choice.value !== selectedAnswer && !isCorrectChoice(choice),
           }"
           :disabled="isAnswered"
           @click="answerQuestion(choice)"
         >
           <span class="choice-index">{{ index + 1 }}</span>
-          <span class="choice-note">{{ choice }}</span>
+          <span
+            class="choice-note"
+            :class="{ 'is-pentatonic': activeMode === 'pentatonic' }"
+          >
+            <template v-if="activeMode === 'pentatonic'">
+              <span class="choice-degree">{{ choice.degreeLabel }}</span>
+              <span class="choice-subnote">{{ choice.note }}</span>
+            </template>
+            <template v-else>
+              {{ choice.note }}
+            </template>
+          </span>
         </button>
       </div>
 
       <div
-        v-if="isAnswered && !lastAnswerCorrect"
-        class="feedback-box error"
+        v-if="(isAnswered && !lastAnswerCorrect) || (!currentQuestion && !isBonusRoundActive && feedbackMessage)"
+        class="feedback-box"
+        :class="{ error: !lastAnswerCorrect, success: lastAnswerCorrect && !currentQuestion }"
       >
         {{ feedbackMessage }}
       </div>
@@ -925,6 +1402,33 @@ onBeforeUnmount(() => {
   background: linear-gradient(135deg, #ba6133, #de8b34);
 }
 
+.difficulty-toggle {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(129, 88, 47, 0.12);
+}
+
+.difficulty-button {
+  min-height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #6a5038;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.difficulty-button.active {
+  color: #fff9f2;
+  background: linear-gradient(135deg, #7b583b, #b77b35);
+}
+
 .stats-inline {
   display: flex;
   align-items: center;
@@ -949,8 +1453,23 @@ onBeforeUnmount(() => {
 .box-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 14px;
   margin-bottom: 10px;
+}
+
+.box-toolbar-group,
+.scale-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.scale-toolbar {
+  margin-left: auto;
+  justify-content: flex-end;
 }
 
 .box-toolbar-label {
@@ -959,7 +1478,8 @@ onBeforeUnmount(() => {
   color: #6a5038;
 }
 
-.box-toolbar-buttons {
+.box-toolbar-buttons,
+.scale-toolbar-buttons {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -979,7 +1499,28 @@ onBeforeUnmount(() => {
 }
 
 .box-button.active {
-  color: #fff9f2;
+  color: #2b1d13;
+  background: var(--position-soft);
+  border-color: var(--position-color);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+}
+
+.scale-button {
+  min-width: 32px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(121, 88, 56, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #5f4735;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.scale-button.active {
+  color: #fff8f1;
   background: linear-gradient(135deg, #ba6133, #de8b34);
   border-color: transparent;
 }
@@ -1053,10 +1594,24 @@ onBeforeUnmount(() => {
 .nut-line,
 .fret-line,
 .string-line,
+.position-zone,
 .position-marker,
 .question-marker,
 .box-note-marker {
   position: absolute;
+}
+
+.position-zone {
+  top: 0;
+  bottom: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--position-soft) 86%, white);
+  border: 2px solid color-mix(in srgb, var(--position-color) 72%, white);
+  opacity: 0.55;
+}
+
+.position-zone.active {
+  opacity: 0.82;
 }
 
 .nut-line {
@@ -1114,22 +1669,51 @@ onBeforeUnmount(() => {
 }
 
 .box-note-marker {
-  width: 8px;
-  height: 8px;
+  padding: 0;
+  border: 0;
+  width: 12px;
+  height: 12px;
   border-radius: 999px;
   transform: translate(-50%, -50%);
-  background: rgba(118, 102, 87, 0.38);
+  background: var(--position-marker-color, #8c67f3);
+  appearance: none;
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.86),
+    0 3px 7px rgba(55, 38, 24, 0.22);
+}
+
+.box-note-marker.is-bonus-active {
+  cursor: pointer;
+}
+
+.box-note-marker.is-bonus-active:hover:enabled {
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+.box-note-marker.is-found {
+  background: linear-gradient(135deg, #66d48b, #2f9d61);
+}
+
+.box-note-marker:disabled {
+  opacity: 1;
 }
 
 .question-marker {
   width: 15px;
   height: 15px;
+  display: grid;
+  place-items: center;
   border-radius: 999px;
   transform: translate(-50%, -50%);
   background: radial-gradient(circle at 30% 30%, #ff9e93, #ff4035 65%, #da251e);
   box-shadow:
     0 0 0 2px rgba(255, 255, 255, 0.72),
     0 4px 8px rgba(189, 62, 46, 0.2);
+}
+
+.question-marker.with-note {
+  width: 28px;
+  height: 28px;
 }
 
 .question-marker.correct {
@@ -1141,6 +1725,14 @@ onBeforeUnmount(() => {
 
 .question-marker.wrong {
   background: radial-gradient(circle at 30% 30%, #ffb0a8, #df584c 68%, #b53c31);
+}
+
+.question-marker-note {
+  color: #fffaf4;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-shadow: 0 1px 2px rgba(71, 19, 15, 0.3);
 }
 
 .fret-numbers {
@@ -1174,6 +1766,35 @@ onBeforeUnmount(() => {
   padding: 10px 12px;
 }
 
+.bonus-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 243, 220, 0.88), rgba(255, 250, 240, 0.94));
+  border: 1px solid rgba(188, 135, 63, 0.18);
+  color: #5b442f;
+  font-size: 0.78rem;
+}
+
+.bonus-box strong {
+  color: #2d1d11;
+  white-space: nowrap;
+}
+
+.bonus-progress {
+  margin-left: auto;
+  font-weight: 800;
+  color: #2d1d11;
+}
+
+.bonus-hint {
+  margin-left: 4px;
+  color: #7a5836;
+}
+
 .choices-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1181,12 +1802,8 @@ onBeforeUnmount(() => {
   margin-top: 0;
 }
 
-.choices-grid.is-binary {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
 .choice-button {
-  min-height: 40px;
+  min-height: 46px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1212,6 +1829,7 @@ onBeforeUnmount(() => {
 
 .choice-button:focus-visible,
 .mode-button:focus-visible,
+.difficulty-button:focus-visible,
 .box-button:focus-visible,
 .session-button:focus-visible,
 .result-button:focus-visible {
@@ -1255,6 +1873,23 @@ onBeforeUnmount(() => {
   letter-spacing: 0.02em;
 }
 
+.choice-note.is-pentatonic {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  gap: 2px;
+}
+
+.choice-degree {
+  font-size: 0.82rem;
+}
+
+.choice-subnote {
+  font-size: 0.72rem;
+  color: #75583d;
+}
+
 .feedback-box {
   min-height: 0;
   margin-top: 6px;
@@ -1273,21 +1908,27 @@ onBeforeUnmount(() => {
   border-color: rgba(193, 93, 71, 0.18);
 }
 
+.feedback-box.success {
+  background: #edf8ef;
+  color: #2d6b3c;
+  border-color: rgba(79, 164, 103, 0.18);
+}
+
 .result-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 20;
   display: grid;
   place-items: center;
-  padding: 20px;
+  padding: 16px;
   background: rgba(38, 25, 16, 0.38);
   backdrop-filter: blur(6px);
 }
 
 .result-modal {
-  width: min(460px, 100%);
-  padding: 22px;
-  border-radius: 26px;
+  width: min(410px, 100%);
+  padding: 18px;
+  border-radius: 22px;
   border: 1px solid rgba(76, 52, 31, 0.12);
   background:
     radial-gradient(circle at top right, rgba(245, 204, 143, 0.3), transparent 34%),
@@ -1300,35 +1941,35 @@ onBeforeUnmount(() => {
 .result-kicker {
   margin: 0;
   color: #8a6540;
-  font-size: 0.72rem;
-  letter-spacing: 0.18em;
+  font-size: 0.66rem;
+  letter-spacing: 0.15em;
   text-transform: uppercase;
 }
 
 .result-title {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
   color: #2b1d13;
-  font-size: clamp(1.4rem, 2.6vw, 2rem);
-  line-height: 1.05;
+  font-size: clamp(1.2rem, 2.2vw, 1.7rem);
+  line-height: 1.08;
 }
 
 .result-copy {
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   color: #6a5038;
-  font-size: 0.9rem;
-  line-height: 1.5;
+  font-size: 0.82rem;
+  line-height: 1.42;
 }
 
 .result-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 16px;
+  gap: 8px;
+  margin-top: 14px;
 }
 
 .result-card {
-  padding: 14px;
-  border-radius: 18px;
+  padding: 11px 12px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(121, 88, 56, 0.1);
 }
@@ -1336,30 +1977,30 @@ onBeforeUnmount(() => {
 .result-card span {
   display: block;
   color: #876646;
-  font-size: 0.76rem;
+  font-size: 0.7rem;
 }
 
 .result-card strong {
   display: block;
-  margin-top: 6px;
+  margin-top: 4px;
   color: #24170f;
-  font-size: 1.4rem;
+  font-size: 1.16rem;
 }
 
 .result-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 18px;
+  gap: 8px;
+  margin-top: 14px;
 }
 
 .result-button {
-  min-height: 38px;
-  padding: 0 16px;
+  min-height: 34px;
+  padding: 0 14px;
   border: 0;
   border-radius: 999px;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   cursor: pointer;
 }
 
@@ -1395,8 +2036,22 @@ onBeforeUnmount(() => {
     border-radius: 14px;
   }
 
+  .difficulty-toggle {
+    border-radius: 14px;
+  }
+
   .board-topbar {
     align-items: flex-start;
+  }
+
+  .box-toolbar {
+    align-items: flex-start;
+  }
+
+  .scale-toolbar {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
   }
 
   .board-topbar-left {
@@ -1409,6 +2064,12 @@ onBeforeUnmount(() => {
   }
 
   .session-button {
+    min-height: 20px;
+    padding: 0 7px;
+    font-size: 0.62rem;
+  }
+
+  .difficulty-button {
     min-height: 20px;
     padding: 0 7px;
     font-size: 0.62rem;
@@ -1439,7 +2100,7 @@ onBeforeUnmount(() => {
   }
 
   .choice-button {
-    min-height: 34px;
+    min-height: 38px;
     padding: 0 4px;
   }
 
@@ -1453,14 +2114,34 @@ onBeforeUnmount(() => {
     font-size: 0.72rem;
   }
 
+  .bonus-box {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    min-height: 0;
+    font-size: 0.7rem;
+  }
+
+  .bonus-progress {
+    margin-left: 0;
+  }
+
   .box-note-marker {
-    width: 7px;
-    height: 7px;
+    width: 10px;
+    height: 10px;
   }
 
   .question-marker {
     width: 13px;
     height: 13px;
+  }
+
+  .question-marker.with-note {
+    width: 24px;
+    height: 24px;
+  }
+
+  .question-marker-note {
+    font-size: 0.52rem;
   }
 
   .stats-inline {
@@ -1472,17 +2153,18 @@ onBeforeUnmount(() => {
   }
 
   .result-modal {
-    padding: 18px;
-    border-radius: 22px;
+    padding: 16px;
+    border-radius: 18px;
   }
 
   .result-grid {
-    gap: 8px;
+    gap: 7px;
   }
 
   .result-card {
-    padding: 12px;
-    border-radius: 16px;
+    padding: 10px;
+    border-radius: 14px;
   }
 }
 </style>
+
