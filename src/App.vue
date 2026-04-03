@@ -1294,6 +1294,10 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </main>
+  <footer>
+  <p>© 2026 달빛요정. All rights reserved.</p>
+  <a href="/privacy.html" target="_blank" style="font-size: 0.8rem; color: #888;">개인정보처리방침</a>
+</footer>
 </template>
 
 <style scoped>
