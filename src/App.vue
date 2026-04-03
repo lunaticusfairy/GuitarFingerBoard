@@ -1696,11 +1696,12 @@ onBeforeUnmount(() => {
 }
 
 .box-note-marker.is-root-note {
-  background: linear-gradient(135deg, #fff0a6, #f0b83e);
+  width: 13px;
+  height: 13px;
+  background: radial-gradient(circle at 35% 35%, #6f6962 0 20%, #4a453f 45%, #2a2622 100%);
   box-shadow:
     0 0 0 2px rgba(255, 255, 255, 0.88),
-    0 0 0 4px rgba(130, 86, 18, 0.16),
-    0 3px 8px rgba(92, 62, 17, 0.24);
+    0 3px 8px rgba(31, 22, 14, 0.24);
 }
 
 .box-note-marker:disabled {
