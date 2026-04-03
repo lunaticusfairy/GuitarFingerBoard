@@ -1162,6 +1162,7 @@ onBeforeUnmount(() => {
                   :class="{
                     'is-bonus-active': isBonusRoundActive,
                     'is-found': isFoundBonusRoot(cell),
+                    'is-root-note': activeMode === 'pentatonic' && !isBonusRoundActive && cell.isRoot,
                   }"
                   :style="getPositionCellStyle(cell)"
                   :disabled="!isBonusRoundActive"
@@ -1692,6 +1693,14 @@ onBeforeUnmount(() => {
 
 .box-note-marker.is-found {
   background: linear-gradient(135deg, #66d48b, #2f9d61);
+}
+
+.box-note-marker.is-root-note {
+  background: linear-gradient(135deg, #fff0a6, #f0b83e);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.88),
+    0 0 0 4px rgba(130, 86, 18, 0.16),
+    0 3px 8px rgba(92, 62, 17, 0.24);
 }
 
 .box-note-marker:disabled {
